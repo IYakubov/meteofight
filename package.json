@@ -1,0 +1,16 @@
+{
+  "name": "rock-drift",
+  "version": "1.0.0",
+  "description": "ROCK DRIFT - tilt-controlled asteroid dodging game for 1-2 pilots. The host screen shows the field, each pilot flies from their phone using motion tilt.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
