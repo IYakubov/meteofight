@@ -1,259 +1,283 @@
 // ═══════════════════════════════════════════════════════
 //  ROCK DRIFT — SERVER
 //  Express + Socket.io: room codes, solo / 2-pilot lobby,
-//  tilt-input relay, host → phone messages, spectator broadcast
+//  QR join link, one phone = one slot, joystick relay
 // ═══════════════════════════════════════════════════════
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const os = require('os');
 const path = require('path');
+const { Server } = require('socket.io');
+const QRCode = require('qrcode');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' }
-});
+const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── ROOM STATE ──
 // rooms[code] = {
 //   hostSocketId,
-//   mode: 'solo' | 'duo',
-//   players: { A: socketId|null, B: socketId|null },   // A = Pilot 1, B = Pilot 2
-//   ready:   { A: bool, B: bool },
-//   started: false,
-//   spectatorCount: 0,
-//   lastLobby, lastState
+//   mode:      'solo' | 'duo',
+//   players:   { A: socketId|null, B: socketId|null },
+//   clientIds: { A: string|null,   B: string|null },   // one phone = one slot
+//   ready:     { A: false, B: false },
+//   started:   false,
+//   lastUi:    null                                     // mirrored menu for (re)joining phones
 // }
 const rooms = {};
-const ALL_SLOTS = ['A', 'B'];
 
 function genCode() {
   let code;
-  do {
-    code = String(Math.floor(100000 + Math.random() * 900000));
-  } while (rooms[code]);
+  do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (rooms[code]);
   return code;
+}
+
+function lanIP() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const n of nets[name] || []) {
+      if (n.family === 'IPv4' && !n.internal) return n.address;
+    }
+  }
+  return null;
+}
+
+function isLocalHost(hostname) {
+  return hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || /^127\./.test(hostname);
+}
+
+// Build the controller link. If the host page was opened on localhost the
+// phones can't reach that, so swap in this machine's LAN IP.
+function buildJoinUrl(origin, base, code) {
+  let url;
+  try { url = new URL(origin); } catch (e) { url = new URL('http://localhost:' + PORT); }
+  if (isLocalHost(url.hostname)) {
+    const ip = lanIP();
+    if (ip) url.hostname = ip;
+  }
+  let b = typeof base === 'string' && base.startsWith('/') ? base : '/';
+  if (!b.endsWith('/')) b += '/';
+  return url.origin + b + 'controller.html?code=' + code;
 }
 
 function neededSlots(room) {
   return room.mode === 'duo' ? ['A', 'B'] : ['A'];
 }
 
-function isSlot(s) {
-  return ALL_SLOTS.includes(s);
+function lobbyPayload(room) {
+  return { mode: room.mode, A: !!room.players.A, B: !!room.players.B, readyA: room.ready.A, readyB: room.ready.B };
 }
 
-function roomPresence(room) {
-  return { A: !!room.players.A, B: !!room.players.B };
-}
-
-function spectatorRoom(code) {
-  return code + ':watch';
+function toPlayers(room, event, payload) {
+  if (room.players.A) io.to(room.players.A).emit(event, payload);
+  if (room.players.B) io.to(room.players.B).emit(event, payload);
 }
 
 function broadcastLobby(code) {
   const room = rooms[code];
   if (!room) return;
-  const presence = roomPresence(room);
-  const data = {
-    mode: room.mode,
-    A: presence.A, B: presence.B,
-    readyA: room.ready.A, readyB: room.ready.B
-  };
-  room.lastLobby = data;
-  if (room.hostSocketId) io.to(room.hostSocketId).emit('game_event', { event: 'lobby_ready_update', data });
-  for (const s of ALL_SLOTS) {
-    if (room.players[s]) io.to(room.players[s]).emit('game_event', { event: 'lobby_ready_update', data });
-  }
-  io.to(spectatorRoom(code)).emit('lobby_update', data);
+  const payload = lobbyPayload(room);
+  if (room.hostSocketId) io.to(room.hostSocketId).emit('lobby_update', payload);
+  toPlayers(room, 'lobby_update', payload);
 }
 
-// Put a socket into a pilot slot and tell everyone.
-function seatPlayer(socket, code, slot) {
+// Is this socket the current owner of its slot?
+function playerRoom(socket) {
+  const code = socket.data.code, slot = socket.data.slot;
   const room = rooms[code];
+  if (!room || !slot || room.players[slot] !== socket.id) return null;
+  return { room, code, slot };
+}
+
+// Shared by join_game and rejoin_game. A phone (clientId) keeps its slot;
+// a socket never holds two slots; nobody can take a slot another phone owns.
+function claimSlot(socket, code, clientId) {
+  const room = rooms[code];
+  if (!room) { socket.emit('join_error', 'Room not found'); return; }
+  const cid = typeof clientId === 'string' && clientId.length <= 64 ? clientId : null;
+  const allowed = neededSlots(room);
+
+  // already seated here
+  if (socket.data.code === code && socket.data.slot && room.players[socket.data.slot] === socket.id) {
+    socket.emit('joined', { slot: socket.data.slot, code, mode: room.mode });
+    if (room.started) socket.emit('game_start');
+    if (room.lastUi) socket.emit('host_ui', room.lastUi);
+    return;
+  }
+
+  let slot = null;
+  if (cid) {
+    for (const s of allowed) if (room.clientIds[s] === cid) slot = s;
+  }
+
+  if (slot) {
+    // same phone opened the link again — the old tab gets replaced
+    const old = room.players[slot];
+    if (old && old !== socket.id) {
+      const oldSock = io.sockets.sockets.get(old);
+      if (oldSock) {
+        oldSock.emit('replaced');
+        oldSock.data.code = null; oldSock.data.slot = null;
+        oldSock.leave(code);
+      }
+    }
+  } else {
+    if (room.started) { socket.emit('join_error', 'Game already started'); return; }
+    slot = allowed.find(s => !room.players[s]) || null;
+    if (!slot) { socket.emit('join_error', 'Room is full'); return; }
+    room.ready[slot] = false;
+  }
+
   room.players[slot] = socket.id;
+  room.clientIds[slot] = cid;
   socket.data.code = code;
   socket.data.slot = slot;
   socket.join(code);
+
+  console.log(`[${code}] slot ${slot} ← ${socket.handshake.headers['user-agent'] || 'unknown device'}`);
+
   socket.emit('joined', { slot, code, mode: room.mode });
-  const presence = roomPresence(room);
-  io.to(code).emit('player_joined', { slot, players: presence });
-  if (room.hostSocketId) io.to(room.hostSocketId).emit('player_joined', { slot, players: presence });
+  if (room.hostSocketId) io.to(room.hostSocketId).emit('player_joined', { slot, players: lobbyPayload(room) });
   broadcastLobby(code);
+  if (room.started) socket.emit('game_start');
+  if (room.lastUi) socket.emit('host_ui', room.lastUi);
 }
 
 io.on('connection', (socket) => {
 
   // ── HOST: create a new game (solo or 2-player) ──
-  socket.on('create_game', (opts) => {
+  socket.on('create_game', async (opts) => {
+    const old = socket.data.hostCode;
+    if (old && rooms[old]) { toPlayers(rooms[old], 'host_disconnected'); delete rooms[old]; }
+
     const mode = opts && opts.mode === 'duo' ? 'duo' : 'solo';
     const code = genCode();
     rooms[code] = {
       hostSocketId: socket.id,
       mode,
       players: { A: null, B: null },
+      clientIds: { A: null, B: null },
       ready: { A: false, B: false },
       started: false,
-      spectatorCount: 0,
-      lastLobby: null,
-      lastState: null
+      lastUi: null
     };
     socket.data.hostCode = code;
-    socket.emit('game_created', { code, mode });
+
+    const origin = (opts && opts.origin) || ('http://' + (socket.handshake.headers.host || 'localhost:' + PORT));
+    const joinUrl = buildJoinUrl(origin, opts && opts.base, code);
+    let qrSvg = '';
+    try {
+      qrSvg = await QRCode.toString(joinUrl, {
+        type: 'svg', margin: 0, errorCorrectionLevel: 'M',
+        color: { dark: '#1b1b1a', light: '#00000000' }
+      });
+    } catch (e) { console.error('QR failed', e); }
+    socket.emit('game_created', { code, mode, joinUrl, qrSvg });
   });
 
-  // ── CONTROLLER: join a game by code ──
-  // `slot` is optional: a phone that reloads sends the slot it had before so it
-  // gets its own ship back (even after the game has started).
-  socket.on('join_game', ({ code, slot } = {}) => {
-    const room = rooms[code];
-    if (!room) {
-      socket.emit('join_error', 'room not found');
-      return;
+  // ── HOST: close the room (Esc in the lobby) ──
+  socket.on('close_game', () => {
+    const code = socket.data.hostCode;
+    if (code && rooms[code] && rooms[code].hostSocketId === socket.id) {
+      toPlayers(rooms[code], 'host_disconnected');
+      delete rooms[code];
     }
-    const allowed = neededSlots(room);
-
-    // Returning pilot reclaiming their old seat (a stale connection may still be
-    // holding it for a few seconds, so the newcomer simply takes over)
-    if (isSlot(slot) && allowed.includes(slot)) {
-      seatPlayer(socket, code, slot);
-      if (room.started) socket.emit('game_start');
-      return;
-    }
-
-    if (room.started) {
-      socket.emit('join_error', 'game already started');
-      return;
-    }
-    const free = allowed.find(s => !room.players[s]);
-    if (!free) {
-      socket.emit('join_error', 'room full');
-      return;
-    }
-    seatPlayer(socket, code, free);
+    socket.data.hostCode = null;
   });
 
-  // ── CONTROLLER: rejoin after a network reconnect ──
-  socket.on('rejoin_game', ({ code, slot } = {}) => {
-    const room = rooms[code];
-    if (!room) {
-      socket.emit('join_error', 'room not found');
-      return;
-    }
-    if (!isSlot(slot) || !neededSlots(room).includes(slot)) return;
-    seatPlayer(socket, code, slot);
-    if (room.started) socket.emit('game_start');
-  });
+  // ── CONTROLLER: join / rejoin ──
+  socket.on('join_game', (p) => claimSlot(socket, String((p && p.code) || ''), p && p.clientId));
+  socket.on('rejoin_game', (p) => claimSlot(socket, String((p && p.code) || ''), p && p.clientId));
 
-  // ── CONTROLLER: ready up ──
-  // Solo starts as soon as Pilot 1 is ready. Duo starts when both pilots are ready.
-  socket.on('player_ready', ({ code } = {}) => {
-    const room = rooms[code];
-    if (!room) return;
-    const slot = socket.data.slot;
-    if (!isSlot(slot) || room.players[slot] !== socket.id) return;
+  // ── CONTROLLER: ready up. Solo starts with Pilot A, duo needs both ──
+  socket.on('player_ready', () => {
+    const pr = playerRoom(socket);
+    if (!pr) return;
+    const { room, code, slot } = pr;
     room.ready[slot] = true;
     broadcastLobby(code);
-
-    const needed = neededSlots(room);
-    const everyoneReady = needed.every(s => room.players[s] && room.ready[s]);
-    if (everyoneReady && !room.started) {
+    const everyone = neededSlots(room).every(s => room.players[s] && room.ready[s]);
+    if (everyone && !room.started) {
       room.started = true;
-      io.to(code).emit('game_start');
+      toPlayers(room, 'game_start');
       if (room.hostSocketId) io.to(room.hostSocketId).emit('game_start');
     }
   });
 
-  // ── CONTROLLER: tilt input stream — {fwd, strafe} each in [-1,1] ──
-  // The slot comes from the socket itself, so a phone can only steer its own ship.
-  socket.on('ctrl_input', ({ fwd, strafe } = {}) => {
-    const code = socket.data.code;
-    const slot = socket.data.slot;
-    const room = rooms[code];
-    if (!room || !room.hostSocketId || !isSlot(slot) || room.players[slot] !== socket.id) return;
-    const f = Math.max(-1, Math.min(1, Number(fwd) || 0));
-    const s = Math.max(-1, Math.min(1, Number(strafe) || 0));
-    io.to(room.hostSocketId).emit('ctrl_input', { slot, fwd: f, strafe: s });
+  // ── HOST: back to lobby — phones stay connected, ready state resets ──
+  socket.on('host_back_to_lobby', () => {
+    const room = rooms[socket.data.hostCode];
+    if (!room || room.hostSocketId !== socket.id) return;
+    room.started = false;
+    room.ready = { A: false, B: false };
+    room.lastUi = null;
+    toPlayers(room, 'back_to_lobby');
+    broadcastLobby(socket.data.hostCode);
   });
 
-  // ── HOST → PHONE: hull updates, round results, etc. ──
+  // ── HOST → PHONES: mirrored menu state ──
+  socket.on('host_ui', (ui) => {
+    const room = rooms[socket.data.hostCode];
+    if (!room || room.hostSocketId !== socket.id) return;
+    room.lastUi = ui || null;
+    toPlayers(room, 'host_ui', ui || null);
+  });
+
+  // ── HOST → ONE PHONE: hull, hits, round result ──
   socket.on('to_player', ({ slot, kind, data } = {}) => {
     const room = rooms[socket.data.hostCode];
-    if (!room || !isSlot(slot)) return;
-    const target = room.players[slot];
-    if (target) io.to(target).emit('player_msg', { kind, data });
+    if (!room || room.hostSocketId !== socket.id) return;
+    if (slot !== 'A' && slot !== 'B') return;
+    if (room.players[slot]) io.to(room.players[slot]).emit('player_msg', { kind, data });
   });
 
-  // ── WATCHER: join as a read-only spectator (no controls) ──
-  socket.on('spectate_join', ({ code } = {}) => {
-    const room = rooms[code];
-    if (!room) {
-      socket.emit('spectate_error', 'room not found');
-      return;
-    }
-    socket.data.watchCode = code;
-    socket.join(spectatorRoom(code));
-    room.spectatorCount++;
-    socket.emit('spectate_ok', { code, mode: room.mode });
-    if (room.lastLobby) socket.emit('lobby_update', room.lastLobby);
-    if (room.lastState) socket.emit('host_state', room.lastState);
-    if (room.hostSocketId) io.to(room.hostSocketId).emit('spectator_count', { count: room.spectatorCount });
+  // ── CONTROLLER: input relay (slot always comes from the server socket) ──
+  // ctrl_input: the full joystick state {up,down,left,right}, sent on change and every 80 ms
+  socket.on('ctrl_input', (p = {}) => {
+    const pr = playerRoom(socket);
+    if (!pr || !pr.room.hostSocketId) return;
+    io.to(pr.room.hostSocketId).emit('ctrl_input', {
+      slot: pr.slot, up: !!p.up, down: !!p.down, left: !!p.left, right: !!p.right
+    });
   });
-
-  // ── HOST: live gameplay snapshot, broadcast at a throttled rate ──
-  socket.on('host_state', (payload) => {
-    const code = socket.data.hostCode;
-    const room = rooms[code];
-    if (!room) return;
-    room.lastState = payload;
-    io.to(spectatorRoom(code)).emit('host_state', payload);
+  socket.on('ctrl_fire', () => {
+    const pr = playerRoom(socket);
+    if (!pr || !pr.room.hostSocketId) return;
+    io.to(pr.room.hostSocketId).emit('ctrl_fire', { slot: pr.slot });
+  });
+  socket.on('ctrl_menu', ({ index } = {}) => {
+    const pr = playerRoom(socket);
+    if (!pr || !pr.room.hostSocketId) return;
+    io.to(pr.room.hostSocketId).emit('ctrl_menu', { slot: pr.slot, index: index | 0 });
   });
 
   // ── Latency diagnostic ──
-  socket.on('ping_check', (cb) => {
-    if (typeof cb === 'function') cb();
-  });
+  socket.on('ping_check', (cb) => { if (typeof cb === 'function') cb(); });
 
   // ── DISCONNECT ──
   socket.on('disconnect', () => {
-    const code = socket.data.code;
     const hostCode = socket.data.hostCode;
-
-    if (hostCode && rooms[hostCode]) {
-      const room = rooms[hostCode];
-      for (const s of ALL_SLOTS) {
-        if (room.players[s]) io.to(room.players[s]).emit('host_disconnected');
-      }
-      io.to(spectatorRoom(hostCode)).emit('host_disconnected');
+    if (hostCode && rooms[hostCode] && rooms[hostCode].hostSocketId === socket.id) {
+      toPlayers(rooms[hostCode], 'host_disconnected');
       delete rooms[hostCode];
     }
-
-    const watchCode = socket.data.watchCode;
-    if (watchCode && rooms[watchCode]) {
-      rooms[watchCode].spectatorCount = Math.max(0, rooms[watchCode].spectatorCount - 1);
-      const hostId = rooms[watchCode].hostSocketId;
-      if (hostId) io.to(hostId).emit('spectator_count', { count: rooms[watchCode].spectatorCount });
-    }
-
-    if (code && rooms[code]) {
-      const room = rooms[code];
-      const slot = socket.data.slot;
-      if (isSlot(slot) && room.players[slot] === socket.id) {
-        room.players[slot] = null;
-        room.ready[slot] = false;
-        if (room.hostSocketId) io.to(room.hostSocketId).emit('player_left', { slot });
-        io.to(code).emit('player_left', { slot });
-        broadcastLobby(code);
-      }
+    const pr = playerRoom(socket);
+    if (pr) {
+      const { room, code, slot } = pr;
+      room.players[slot] = null;
+      room.ready[slot] = false;
+      // clientIds[slot] is kept so the same phone can come back to its ship
+      if (room.hostSocketId) io.to(room.hostSocketId).emit('player_left', { slot });
+      broadcastLobby(code);
     }
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
+  const ip = lanIP();
   console.log(`ROCK DRIFT server running on http://localhost:${PORT}`);
-  console.log(`Host display: http://localhost:${PORT}/`);
-  console.log(`Controller (phone): http://localhost:${PORT}/controller.html`);
+  if (ip) console.log(`On your network:  http://${ip}:${PORT}`);
 });

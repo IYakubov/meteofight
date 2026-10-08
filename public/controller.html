@@ -3,511 +3,444 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#cfcdc6">
 <title>Rock Drift — Controller</title>
-<script src="/socket.io/socket.io.js"></script>
+<link rel="stylesheet" href="fonts/fonts.css">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@500;600;700;800&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#080a1c; --bg2:#0d1030; --panel:#11143a; --panel2:#161a4a;
-  --border:#2c3170; --accent:#4fd8ff; --accent2:#ff4fd8; --gold:#ffd24f;
-  --text:#d7dcff; --textdim:#7d83b8; --ok:#3ee08f; --danger:#ff5f6d;
-  --me:#4fd8ff; --me-glow:rgba(79,216,255,.75);   /* set per pilot in JS */
+  --soil:#cfcdc6;--slab:#dddbd4;--paper:#ecebe6;--ink:#1b1b1a;--navy:#1A4361;
+  --dim:#6f6d67;--line:rgba(27,27,26,.16);
+  --good:#bcc8b3;--good-ink:#4f6a48;--bad:#d6bdb6;--bad-ink:#7a3b33;
+  --pc:var(--ink);          /* player colour, navy for B */
+  --pc-edge:#000;
 }
+body.B{--pc:var(--navy);--pc-edge:#0d2536}
 html,body{
-  height:100%;width:100%;background:var(--bg);color:var(--text);
-  font-family:'Nunito',sans-serif;overflow:hidden;touch-action:none;
-  -webkit-touch-callout:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;
+  height:100%;width:100%;background:var(--soil);color:var(--ink);
+  font-family:'Unbounded',system-ui,sans-serif;overflow:hidden;touch-action:none;
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
   -webkit-tap-highlight-color:transparent;
-  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
 }
-*{-webkit-touch-callout:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
-body::before{content:'';position:fixed;inset:0;pointer-events:none;background-image:radial-gradient(var(--border) 1.2px,transparent 1.2px);background-size:26px 26px;opacity:.4}
+*{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+body.solo .only-duo{display:none !important}
 
-.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;transition:opacity .3s}
-.screen.hidden{opacity:0;pointer-events:none;display:none}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px}
+.screen.hidden{display:none}
 
-.game-title{font-family:'Baloo 2',sans-serif;font-size:1.5rem;font-weight:800;letter-spacing:.01em;
-  background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
-.sub{font-size:.8rem;color:var(--textdim);text-align:center;font-weight:600;max-width:340px;line-height:1.55}
+.eyebrow{font-size:.56rem;font-weight:600;letter-spacing:.24em;text-transform:uppercase;color:var(--dim)}
+.title{font-size:1.9rem;font-weight:850;letter-spacing:-.01em;text-align:center;line-height:1}
+.sub{font-size:.66rem;color:var(--dim);text-align:center;line-height:1.7;max-width:290px}
 
-.code-input-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:280px}
-.code-label{font-size:.68rem;color:var(--textdim);letter-spacing:.04em;font-weight:700}
-#code-input{width:100%;padding:14px 16px;text-align:center;letter-spacing:.3em;background:var(--panel);border:2px solid var(--border);border-radius:16px;color:var(--accent);font-family:'Baloo 2',sans-serif;font-size:1.6rem;font-weight:700;outline:none}
-#code-input:focus{border-color:var(--accent)}
+/* join */
+#code-input{width:100%;max-width:280px;padding:16px;text-align:center;letter-spacing:.32em;background:var(--paper);border:1px solid var(--line);border-radius:14px;color:var(--ink);font-family:inherit;font-size:1.4rem;font-weight:700;outline:none;-webkit-user-select:text;user-select:text}
+#code-input:focus{border-color:var(--ink)}
+#code-input::placeholder{color:#b5b3ac}
+.btn{width:100%;max-width:280px;padding:18px 24px;border:none;border-radius:14px;background:var(--pc);color:var(--paper);font-family:inherit;font-size:.74rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;box-shadow:0 5px 0 var(--pc-edge);transition:transform .08s,box-shadow .08s}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 var(--pc-edge)}
+.btn.done{background:var(--good);color:var(--good-ink);box-shadow:0 5px 0 #9fae95}
+#error-msg{font-size:.6rem;font-weight:600;letter-spacing:.06em;color:var(--bad-ink);min-height:1em;text-align:center}
 
-.btn{padding:15px 32px;background:var(--accent);border:none;border-radius:18px;color:#04101a;font-family:'Baloo 2',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.01em;cursor:pointer;transition:all .15s;width:100%;max-width:300px;position:relative;box-shadow:0 5px 0 #1a7fa0}
-.btn:active{transform:translateY(3px);box-shadow:0 2px 0 #1a7fa0}
-.btn.pink{background:var(--accent2);box-shadow:0 5px 0 #a4188e}
-.btn.pink:active{box-shadow:0 2px 0 #a4188e}
-.btn.done{background:var(--ok);box-shadow:0 5px 0 #1f8a54}
-#error-msg{font-size:.72rem;color:var(--danger);min-height:1em;font-weight:700}
+/* lobby */
+.me{display:flex;flex-direction:column;align-items:center;gap:14px}
+.me-ship{width:112px;height:112px;border-radius:28px;background:var(--paper);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--pc)}
+.me-ship svg{width:70%;height:70%}
+.me-name{font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.pair{display:flex;gap:10px}
+.pp{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;background:var(--slab);border:1px solid var(--line);font-size:.56rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.pp i{width:10px;height:10px;border-radius:3px;background:var(--ink);opacity:.25}
+.pp.B i{background:var(--navy)}
+.pp.on i{opacity:1}
+.pp.ready{background:var(--good);color:var(--good-ink)}
+.pp.ready i{opacity:1}
 
-.slot-badge{font-family:'Baloo 2',sans-serif;font-size:1.6rem;font-weight:800;padding:14px 32px;border:2px solid var(--me);border-radius:20px;color:var(--me);background:var(--panel);letter-spacing:.05em}
-.ready-indicator{display:flex;gap:18px;font-size:.7rem;color:var(--textdim);font-weight:700}
-.ri{display:flex;align-items:center;gap:6px}
-.ri-dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:background .25s}
-#ri-a.on{background:var(--accent)}
-#ri-b.on{background:var(--accent2)}
-.ri-dot.ready{background:var(--ok)}
-.ri.hidden{display:none}
+/* ═══ FLIGHT (landscape): D-pad · panel · fire ═══ */
+#flight-screen{display:grid;grid-template-columns:1fr minmax(170px,30vw) 1fr;align-items:center;justify-items:center;gap:10px;
+  padding:max(12px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
+#flight-screen.hidden{display:none}
+.zone{display:flex;flex-direction:column;align-items:center;gap:12px}
+.cap{font-size:.5rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
 
-/* ── GAUGE ── */
-.gauge-wrap{position:relative;width:220px;height:220px}
-.gauge-ring{position:absolute;inset:0;border-radius:50%;border:3px solid var(--border);background:radial-gradient(circle at 50% 50%,var(--panel2),var(--panel) 75%)}
-.gauge-cross{position:absolute;inset:0}
-.gauge-cross::before,.gauge-cross::after{content:'';position:absolute;background:var(--border)}
-.gauge-cross::before{left:0;right:0;top:50%;height:1px;transform:translateY(-.5px)}
-.gauge-cross::after{top:0;bottom:0;left:50%;width:1px;transform:translateX(-.5px)}
-.gauge-label{position:absolute;font-size:.62rem;color:var(--textdim);font-weight:700;letter-spacing:.05em}
-.gl-fwd{top:8px;left:50%;transform:translateX(-50%)}
-.gl-back{bottom:8px;left:50%;transform:translateX(-50%)}
-.gl-left{left:10px;top:50%;transform:translateY(-50%)}
-.gl-right{right:10px;top:50%;transform:translateY(-50%)}
-.gauge-knob{position:absolute;width:34px;height:34px;border-radius:50%;background:var(--me);
-  box-shadow:0 0 18px var(--me-glow);left:50%;top:50%;transform:translate(-50%,-50%);transition:background .15s}
-.gauge-knob.moving{background:var(--gold);box-shadow:0 0 18px rgba(255,210,79,.75)}
+/* D-pad: one touch zone, slide between arms, diagonals allowed */
+#dpad{--sz:min(68vh,36vw,280px);position:relative;width:var(--sz);height:var(--sz);touch-action:none}
+.arm{position:absolute;width:34%;height:34%;border-radius:14px;background:var(--slab);border:2px solid var(--pc);display:flex;align-items:center;justify-content:center;color:var(--pc);transition:transform .06s,background .08s,color .08s;box-shadow:0 5px 0 var(--pc-edge)}
+.arm svg{width:42%;height:42%}
+.arm.u{left:33%;top:0}.arm.d{left:33%;bottom:0}.arm.l{left:0;top:33%}.arm.r{right:0;top:33%}
+.arm.on{background:var(--pc);color:var(--paper);transform:translateY(4px);box-shadow:0 1px 0 var(--pc-edge)}
+.hub{position:absolute;left:39%;top:39%;width:22%;height:22%;border-radius:50%;background:var(--paper);border:1px solid var(--line)}
 
-.settings-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:320px}
-.chip{padding:7px 14px;border-radius:999px;border:2px solid var(--border);background:var(--panel);color:var(--textdim);font-size:.68rem;font-weight:700;cursor:pointer;user-select:none}
-.chip.active{border-color:var(--accent);color:var(--accent);background:rgba(79,216,255,.08)}
+/* centre panel: hull + status, or the mirrored menu */
+.panel{width:100%;max-width:300px;background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:14px 14px 16px;display:flex;flex-direction:column;gap:12px}
+.panel-top{display:flex;align-items:center;justify-content:space-between}
+.chip{display:flex;align-items:center;gap:8px;font-size:.54rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.chip b{width:22px;height:22px;border-radius:7px;background:var(--pc);color:var(--paper);display:flex;align-items:center;justify-content:center;font-size:.66rem;font-weight:800}
+.net{width:8px;height:8px;border-radius:50%;background:var(--good-ink)}
+.net.off{background:var(--bad-ink)}
+.hull{display:flex;gap:4px}
+.hull i{flex:1;height:10px;border-radius:3px;background:var(--pc);transition:background .2s}
+.hull i.off{background:var(--slab)}
+#status{font-size:.95rem;font-weight:800;line-height:1.2;text-align:center;padding:6px 4px;border-radius:12px;transition:background .2s,color .2s}
+#status.bad{background:var(--bad);color:var(--bad-ink)}
+#status.good{background:var(--good);color:var(--good-ink)}
+#status-sub{font-size:.5rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);text-align:center;margin-top:-6px}
+#menu-box{display:none;flex-direction:column;gap:8px}
+.panel.menu #menu-box{display:flex}
+.panel.menu #status,.panel.menu #status-sub,.panel.menu .hull{display:none}
+#menu-title{font-size:.9rem;font-weight:850;text-align:center}
+.mi{padding:13px 14px;border-radius:12px;background:var(--slab);border:1px solid var(--line);font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+.mi.focus{background:var(--ink);color:var(--paper)}
+.mlist{display:flex;flex-direction:column;gap:7px}
+.mlist.locked .mi{opacity:.5}
 
-.small-btn{padding:9px 18px;font-size:.7rem;background:var(--panel2);color:var(--text);border:2px solid var(--border);border-radius:14px;font-weight:700;cursor:pointer}
+/* fire button: plain crosshair, no text */
+#fire{position:relative;width:min(56vh,30vw,230px);height:min(56vh,30vw,230px);touch-action:none}
+#fire::before{content:'';position:absolute;inset:0;border-radius:50%;background:var(--pc-edge);transform:translateY(7px)}
+#fire .face{position:absolute;inset:0;border-radius:50%;background:var(--slab);border:2px solid var(--pc);color:var(--pc);display:flex;align-items:center;justify-content:center;transition:transform .06s,background .08s,color .08s}
+#fire .face svg{width:56%;height:56%}
+#fire.down .face{transform:translateY(6px);background:var(--pc);color:var(--paper)}
 
-/* ── CONTROLLER SCREEN ── */
-#controller-screen{gap:14px;padding:16px}
-.ctrl-topline{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:340px}
-.ctrl-badge{font-family:'Baloo 2',sans-serif;font-size:.9rem;font-weight:700;color:var(--me)}
-.hull{display:flex;gap:6px;align-items:center;min-height:24px}
-.hull svg{width:22px;height:22px}
-.result{width:100%;max-width:340px;padding:12px 16px;border:2px solid var(--me);border-radius:16px;background:var(--panel);text-align:center}
-.result.hidden{display:none}
-.result-title{font-family:'Baloo 2',sans-serif;font-size:1.15rem;font-weight:800;color:var(--text)}
-.result .sub{margin-top:4px;max-width:none}
+/* portrait warning — the joystick screen needs landscape */
+#rotate{position:fixed;inset:0;z-index:60;background:var(--soil);display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:30px}
+#rotate .phone{width:46px;height:78px;border:3px solid var(--ink);border-radius:10px;animation:turn 1.8s ease-in-out infinite}
+@keyframes turn{0%,20%{transform:rotate(0)}55%,80%{transform:rotate(-90deg)}100%{transform:rotate(0)}}
+@media (orientation:portrait){ body.in-flight #rotate{display:flex} }
 
-#conn-lost-banner{
-  display:none;position:fixed;top:0;left:0;right:0;padding:10px;background:var(--danger);
-  color:#fff;font-weight:700;font-size:.75rem;text-align:center;z-index:999;
-  padding-top:calc(10px + env(safe-area-inset-top,0px));
-}
+#conn-banner{position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--bad);color:var(--bad-ink);text-align:center;font-size:.56rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:9px 0;display:none}
 </style>
 </head>
-<body>
+<body class="solo">
 
-<div id="conn-lost-banner"></div>
+<div id="conn-banner"></div>
 
-<!-- JOIN SCREEN -->
+<!-- JOIN -->
 <div class="screen" id="join-screen">
-  <div class="game-title">Rock Drift</div>
-  <div class="sub">Enter the room code shown on the big screen.</div>
-  <div class="code-input-wrap">
-    <div class="code-label">ROOM CODE</div>
-    <input id="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000">
-  </div>
-  <button class="btn" id="join-btn">Join</button>
+  <div class="eyebrow">Controller</div>
+  <div class="title">Rock Drift</div>
+  <div class="sub">Enter the room number from the big screen, or scan its QR code.</div>
+  <input id="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000"/>
+  <button class="btn" id="join-btn">Connect</button>
   <div id="error-msg"></div>
 </div>
 
-<!-- MOTION PERMISSION SCREEN (iOS gate) -->
-<div class="screen hidden" id="perm-screen">
-  <div class="game-title">Almost there</div>
-  <div class="sub">Rock Drift steers your ship using your phone's motion sensor. Your browser needs one tap to allow it.</div>
-  <button class="btn" id="perm-btn">Enable Motion Controls</button>
-  <div id="perm-error" class="sub" style="color:var(--danger)"></div>
-</div>
-
-<!-- CALIBRATE SCREEN -->
-<div class="screen hidden" id="calibrate-screen">
-  <div class="game-title">Calibrate</div>
-  <div class="sub">Hold the phone upright in front of you, like you're reading it. This will be your neutral position — tilt away from it to fly.</div>
-  <div class="gauge-wrap">
-    <div class="gauge-ring"></div>
-    <div class="gauge-cross">
-      <div class="gauge-label gl-fwd">FWD</div>
-      <div class="gauge-label gl-back">BACK</div>
-      <div class="gauge-label gl-left">LEFT</div>
-      <div class="gauge-label gl-right">RIGHT</div>
-    </div>
-    <div class="gauge-knob" id="cal-knob"></div>
-  </div>
-  <div class="settings-row">
-    <div class="chip" id="chip-invert-fwd">Invert fwd/back</div>
-    <div class="chip" id="chip-invert-lr">Invert left/right</div>
-  </div>
-  <div class="settings-row">
-    <div class="chip" data-sens="35">Gentle</div>
-    <div class="chip active" data-sens="24">Normal</div>
-    <div class="chip" data-sens="15">Sharp</div>
-  </div>
-  <button class="btn" id="calibrate-btn">Calibrate &amp; Continue</button>
-</div>
-
-<!-- LOBBY / READY SCREEN -->
+<!-- LOBBY -->
 <div class="screen hidden" id="lobby-screen">
-  <div class="slot-badge" id="my-slot-badge">Pilot</div>
-  <div class="sub" id="lobby-status">Calibrated. Ready when you are!</div>
-  <div class="ready-indicator">
-    <div class="ri"><div class="ri-dot" id="ri-a"></div><span id="ri-a-label">Pilot</span></div>
-    <div class="ri hidden" id="ri-b-wrap"><div class="ri-dot" id="ri-b"></div><span>Pilot 2</span></div>
+  <div class="me">
+    <div class="me-ship"><svg viewBox="-32 -34 64 66" aria-hidden="true"><path d="M0 -30 L8 -6 L26 17 L26 24 L8 18 L4 26 L-4 26 L-8 18 L-26 24 L-26 17 L-8 -6 Z" fill="currentColor"/><ellipse cx="0" cy="-6" rx="3" ry="7" fill="#ecebe6"/><path d="M11 6 L22 18 M-11 6 L-22 18" stroke="#ecebe6" stroke-width="1.3"/><rect x="-4" y="25" width="8" height="2" fill="#ecebe6"/></svg></div>
+    <div class="me-name" id="my-name">Pilot A</div>
   </div>
-  <button class="btn pink" id="ready-btn">Ready for Launch</button>
-  <button class="small-btn" id="recalibrate-btn-lobby">Recalibrate</button>
+  <div class="sub" id="lobby-status">Tap Ready when you're set</div>
+  <div class="pair only-duo">
+    <div class="pp" id="pp-A"><i></i>Pilot A</div>
+    <div class="pp B" id="pp-B"><i></i>Pilot B</div>
+  </div>
+  <button class="btn" id="ready-btn">Ready</button>
 </div>
 
-<!-- FLIGHT CONTROLLER SCREEN -->
-<div class="screen hidden" id="controller-screen">
-  <div class="ctrl-topline">
-    <div class="ctrl-badge" id="ctrl-badge">Pilot</div>
-    <button class="small-btn" id="recalibrate-btn">Recalibrate</button>
-  </div>
-  <div class="hull" id="hull" aria-label="Hull"></div>
-  <div class="gauge-wrap">
-    <div class="gauge-ring"></div>
-    <div class="gauge-cross">
-      <div class="gauge-label gl-fwd">FWD</div>
-      <div class="gauge-label gl-back">BACK</div>
-      <div class="gauge-label gl-left">LEFT</div>
-      <div class="gauge-label gl-right">RIGHT</div>
+<!-- FLIGHT -->
+<div class="screen hidden" id="flight-screen">
+  <div class="zone">
+    <div id="dpad">
+      <div class="arm u"><svg viewBox="0 0 24 24"><path d="M12 5l8 11H4z" fill="currentColor"/></svg></div>
+      <div class="arm l"><svg viewBox="0 0 24 24"><path d="M5 12l11-8v16z" fill="currentColor"/></svg></div>
+      <div class="arm r"><svg viewBox="0 0 24 24"><path d="M19 12L8 4v16z" fill="currentColor"/></svg></div>
+      <div class="arm d"><svg viewBox="0 0 24 24"><path d="M12 19L4 8h16z" fill="currentColor"/></svg></div>
+      <div class="hub"></div>
     </div>
-    <div class="gauge-knob" id="live-knob"></div>
+    <div class="cap" id="dpad-cap">Up thrust · left/right turn</div>
   </div>
-  <div class="result hidden" id="result-banner">
-    <div class="result-title" id="result-title"></div>
-    <div class="sub" id="result-sub"></div>
+
+  <div class="panel" id="panel">
+    <div class="panel-top">
+      <div class="chip"><b id="hud-slot">A</b><span id="hud-name">Pilot A</span></div>
+      <div class="net" id="net-dot"></div>
+    </div>
+    <div class="hull" id="hull"><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="status">Get ready</div>
+    <div id="status-sub">Dodge the meteors</div>
+    <div id="menu-box">
+      <div class="eyebrow" id="menu-eyebrow" style="text-align:center">Round over</div>
+      <div id="menu-title">Ship destroyed</div>
+      <div class="mlist locked" id="mlist"></div>
+    </div>
   </div>
-  <div class="sub" id="ctrl-sub">Dodge the asteroids — 5 hits and your ship blows up.</div>
+
+  <div class="zone">
+    <div id="fire"><div class="face"><svg viewBox="0 0 64 64" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="32" cy="32" r="18"/><path d="M32 4v14M32 46v14M4 32h14M46 32h14"/><circle cx="32" cy="32" r="2.5" fill="currentColor" stroke="none"/></svg></div></div>
+    <div class="cap" id="fire-cap">Tap to shoot</div>
+  </div>
 </div>
 
+<!-- REPLACED / HOST LEFT -->
+<div class="screen hidden" id="info-screen">
+  <div class="eyebrow" id="info-eyebrow">Disconnected</div>
+  <div class="title" id="info-title">Host left</div>
+  <div class="sub" id="info-sub">The big screen closed the game. Scan the new QR code to play again.</div>
+</div>
+
+<div id="rotate"><div class="phone"></div><div class="sub">Turn your phone sideways to fly</div></div>
+
+<script src="/socket.io/socket.io.js"></script>
 <script>
 'use strict';
-const HP_MAX=5;
-const socket=io();
-let myCode=null, mySlot=null, roomMode='solo', gameStarted=false, pendingStart=false;
+const $=id=>document.getElementById(id);
+function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
 
 // ═══════════════════════════════════════════════════════
-//  TILT ENGINE
+//  SOCKET + ONE PHONE = ONE SLOT
 // ═══════════════════════════════════════════════════════
-let baseBeta=0, baseGamma=0, calibrated=false;
-let curBeta=0, curGamma=0;
-let invertFwd=false, invertLR=false;
-let sensitivity=24; // degrees for full deflection
+const socket=io({ transports:['websocket'] });
+let mySlot=null, myCode=null, myMode='solo', gameStarted=false, retired=false, menuUi=null;
 
-try{
-  invertFwd=localStorage.getItem('nsInvertFwd')==='1';
-  invertLR=localStorage.getItem('nsInvertLR')==='1';
-  sensitivity=parseInt(localStorage.getItem('nsSensitivity')||'24',10)||24;
-}catch(e){}
-
-function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
-
-function computeTilt(){
-  let db=curBeta-baseBeta;   // forward/back
-  let dg=curGamma-baseGamma; // left/right
-  if(invertFwd) db=-db;
-  if(invertLR) dg=-dg;
-  const fwd=clamp(-db/sensitivity,-1,1);   // tipping top away from you -> forward
-  const strafe=clamp(dg/sensitivity,-1,1);
-  return{fwd,strafe};
-}
-
-function onOrientation(e){
-  if(e.beta===null||e.gamma===null) return;
-  curBeta=e.beta; curGamma=e.gamma;
-}
-window.addEventListener('deviceorientation',onOrientation);
-
-// gauge rendering (shared between calibrate preview + live flight)
-function renderGauge(knobEl,fwd,strafe){
-  const R=90; // usable radius inside the 220px ring
-  const x=strafe*R, y=-fwd*R;
-  knobEl.style.left=(50+ (x/220*100))+'%';
-  knobEl.style.top=(50+ (y/220*100))+'%';
-  const moving=Math.hypot(fwd,strafe)>0.12;
-  knobEl.classList.toggle('moving',moving);
-}
-
-function gaugeLoop(){
-  const t=computeTilt();
-  if(!document.getElementById('calibrate-screen').classList.contains('hidden')) renderGauge(document.getElementById('cal-knob'),t.fwd,t.strafe);
-  if(!document.getElementById('controller-screen').classList.contains('hidden')) renderGauge(document.getElementById('live-knob'),t.fwd,t.strafe);
-  requestAnimationFrame(gaugeLoop);
-}
-gaugeLoop();
-
-// send tilt to server at a throttled rate while flying
-let sendTimer=null;
-function startSending(){
-  if(sendTimer) return;
-  sendTimer=setInterval(()=>{
-    if(!myCode) return;
-    const t=computeTilt();
-    socket.emit('ctrl_input',{code:myCode,fwd:t.fwd,strafe:t.strafe});
-  },40);
-}
-function stopSending(){
-  if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
-  if(myCode) socket.emit('ctrl_input',{code:myCode,fwd:0,strafe:0});
-}
-
-function calibrateNow(){
-  baseBeta=curBeta; baseGamma=curGamma; calibrated=true;
-}
-
-// keep the screen on — you fly by tilting, not touching, so phones would otherwise dim and lock
-let wakeLock=null;
-async function keepAwake(){
-  try{ if('wakeLock' in navigator && !wakeLock){ wakeLock=await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release',()=>{wakeLock=null;}); } }catch(e){}
-}
-
-// ═══════════════════════════════════════════════════════
-//  SETTINGS UI
-// ═══════════════════════════════════════════════════════
-const chipFwd=document.getElementById('chip-invert-fwd');
-const chipLR=document.getElementById('chip-invert-lr');
-chipFwd.classList.toggle('active',invertFwd);
-chipLR.classList.toggle('active',invertLR);
-chipFwd.addEventListener('click',()=>{
-  invertFwd=!invertFwd; chipFwd.classList.toggle('active',invertFwd);
-  try{localStorage.setItem('nsInvertFwd',invertFwd?'1':'0');}catch(e){}
-});
-chipLR.addEventListener('click',()=>{
-  invertLR=!invertLR; chipLR.classList.toggle('active',invertLR);
-  try{localStorage.setItem('nsInvertLR',invertLR?'1':'0');}catch(e){}
-});
-document.querySelectorAll('.chip[data-sens]').forEach(chip=>{
-  if(parseInt(chip.dataset.sens,10)===sensitivity) chip.classList.add('active'); else chip.classList.remove('active');
-  chip.addEventListener('click',()=>{
-    document.querySelectorAll('.chip[data-sens]').forEach(c=>c.classList.remove('active'));
-    chip.classList.add('active');
-    sensitivity=parseInt(chip.dataset.sens,10);
-    try{localStorage.setItem('nsSensitivity',String(sensitivity));}catch(e){}
-  });
-});
-
-// ═══════════════════════════════════════════════════════
-//  PILOT IDENTITY + HULL DISPLAY
-// ═══════════════════════════════════════════════════════
-function pilotLabel(){
-  if(roomMode!=='duo') return 'Pilot';
-  return mySlot==='B'?'Pilot 2':'Pilot 1';
-}
-function applyPilotStyle(){
-  const root=document.documentElement.style;
-  if(mySlot==='B'){ root.setProperty('--me','#ff4fd8'); root.setProperty('--me-glow','rgba(255,79,216,.75)'); }
-  else{ root.setProperty('--me','#4fd8ff'); root.setProperty('--me-glow','rgba(79,216,255,.75)'); }
-  document.getElementById('my-slot-badge').textContent=pilotLabel();
-  document.getElementById('ctrl-badge').textContent=pilotLabel();
-  document.getElementById('ri-a-label').textContent=roomMode==='duo'?'Pilot 1':'Pilot';
-  document.getElementById('ri-b-wrap').classList.toggle('hidden',roomMode!=='duo');
-}
-function heartSVG(filled){
-  const col=filled?'#ff5f6d':'#2c3170';
-  return '<svg viewBox="0 0 24 24"><path fill="'+col+'" d="M12 21s-7.5-4.7-10-9.3C.3 8.6 2 5 5.6 5c2 0 3.5 1.1 4.4 2.6C10.9 6.1 12.4 5 14.4 5 18 5 19.7 8.6 18 11.7 15.5 16.3 12 21 12 21z"/></svg>';
-}
-function renderHull(hp){
-  const el=document.getElementById('hull');
-  el.innerHTML='';
-  for(let i=0;i<HP_MAX;i++){
-    const d=document.createElement('div');
-    d.innerHTML=heartSVG(i<hp);
-    el.appendChild(d.firstChild);
+function getClientId(){
+  let id=null;
+  try{ id=localStorage.getItem('rockdrift_client'); }catch(e){}
+  if(!id){
+    id=(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));
+    try{ localStorage.setItem('rockdrift_client',id); }catch(e){}
   }
+  return id;
 }
-renderHull(HP_MAX);
-function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+const clientId=getClientId();
 
-function showResult(title,sub){
-  document.getElementById('result-title').textContent=title;
-  document.getElementById('result-sub').textContent=sub;
-  document.getElementById('result-banner').classList.remove('hidden');
-  document.getElementById('ctrl-sub').style.display='none';
-}
-function hideResult(){
-  document.getElementById('result-banner').classList.add('hidden');
-  document.getElementById('ctrl-sub').style.display='';
-}
-
-// ═══════════════════════════════════════════════════════
-//  SCREEN FLOW
-// ═══════════════════════════════════════════════════════
+const screens=['join','lobby','flight','info'];
 function showScreen(name){
-  ['join-screen','perm-screen','calibrate-screen','lobby-screen','controller-screen'].forEach(id=>{
-    document.getElementById(id).classList.toggle('hidden',id!==name);
-  });
+  for(const s of screens) $(s+'-screen').classList.toggle('hidden',s!==name);
+  document.body.classList.toggle('in-flight',name==='flight');
 }
 
-function needsMotionPermission(){
-  return typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function';
-}
-
-function goToCalibrationOrPermission(){
-  if(needsMotionPermission()){
-    showScreen('perm-screen');
-  }else{
-    showScreen('calibrate-screen');
-  }
-}
-
-document.getElementById('perm-btn').addEventListener('click',()=>{
-  DeviceOrientationEvent.requestPermission().then(state=>{
-    if(state==='granted'){
-      window.addEventListener('deviceorientation',onOrientation);
-      showScreen('calibrate-screen');
-    }else{
-      document.getElementById('perm-error').textContent='Motion access was denied — check your browser/site settings and reload.';
-    }
-  }).catch(()=>{
-    document.getElementById('perm-error').textContent='Could not request motion access. Try reloading the page.';
-  });
-});
-
-document.getElementById('calibrate-btn').addEventListener('click',()=>{
-  calibrateNow();
-  if(pendingStart){ pendingStart=false; showController(); }   // rejoined a game that's already running
-  else showScreen('lobby-screen');
-});
-document.getElementById('recalibrate-btn-lobby').addEventListener('click',calibrateNow);
-document.getElementById('recalibrate-btn').addEventListener('click',calibrateNow);
-
-// ── SESSION (lets a reloaded phone get its own ship back) ──
-function saveSession(){ try{sessionStorage.setItem('rdSession',JSON.stringify({code:myCode,slot:mySlot}));}catch(e){} }
-function savedSlotFor(code){
-  try{ const s=JSON.parse(sessionStorage.getItem('rdSession')||'null'); if(s&&s.code===code) return s.slot; }catch(e){}
-  return null;
-}
-
-// ── JOIN ──
-const codeInput=document.getElementById('code-input');
-const errorMsg=document.getElementById('error-msg');
-document.getElementById('join-btn').addEventListener('click',()=>doJoin());
+const codeInput=$('code-input'), errorMsg=$('error-msg');
+$('join-btn').addEventListener('click',()=>doJoin());
 codeInput.addEventListener('keydown',e=>{if(e.key==='Enter') doJoin();});
-
-{
-  const urlCode=new URLSearchParams(window.location.search).get('code');
-  if(urlCode&&/^\d{6}$/.test(urlCode)){
-    codeInput.value=urlCode;
-    doJoin();
-  }
-}
-
 function doJoin(){
   const code=codeInput.value.trim();
-  if(code.length!==6){errorMsg.textContent='Enter the 6-digit code';return;}
+  if(!/^\d{6}$/.test(code)){errorMsg.textContent='Enter the 6-digit room number';return;}
   errorMsg.textContent='';
-  socket.emit('join_game',{code,slot:savedSlotFor(code)});
+  myCode=code;
+  socket.emit('join_game',{code,clientId});
 }
 
-socket.on('join_error',msg=>{ errorMsg.textContent=msg; });
+// Auto-join from the QR link — only once the page is actually visible,
+// so a scanner app's hidden preview can't grab a slot.
+{
+  const urlCode=new URLSearchParams(location.search).get('code');
+  if(urlCode&&/^\d{6}$/.test(urlCode)){
+    codeInput.value=urlCode;
+    const go=()=>{ if(document.visibilityState==='visible'&&!mySlot&&!retired){ document.removeEventListener('visibilitychange',go); doJoin(); } };
+    if(document.visibilityState==='visible') doJoin(); else document.addEventListener('visibilitychange',go);
+  }
+}
+socket.on('join_error',msg=>{ errorMsg.textContent=msg; showScreen('join'); });
 
-// ── LOBBY STATE FROM SERVER ──
+const readyBtn=$('ready-btn');
 let isReady=false;
-const readyBtn=document.getElementById('ready-btn');
-function renderLobby(d){
-  const dotA=document.getElementById('ri-a'), dotB=document.getElementById('ri-b');
-  dotA.className='ri-dot'+(d.readyA?' ready':d.A?' on':'');
-  dotB.className='ri-dot'+(d.readyB?' ready':d.B?' on':'');
-  const st=document.getElementById('lobby-status');
-  if(d.mode==='duo'){
-    const other=mySlot==='A'?'B':'A';
-    const otherHere=other==='A'?d.A:d.B, otherReady=other==='A'?d.readyA:d.readyB;
-    const otherName=other==='A'?'Pilot 1':'Pilot 2';
-    if(!otherHere) st.textContent=(isReady?'Standing by. ':'Calibrated. ')+'Waiting for '+otherName+' to connect...';
-    else if(!otherReady) st.textContent=(isReady?'Standing by. ':'Calibrated. ')+'Waiting for '+otherName+' to get ready...';
-    else st.textContent='Both pilots ready — launching!';
-  }else{
-    st.textContent=isReady?'Launching!':'Calibrated. Ready when you are!';
-  }
-}
-socket.on('game_event',({event,data})=>{
-  if(event==='lobby_ready_update'){ roomMode=data.mode||roomMode; applyPilotStyle(); renderLobby(data); }
-});
-
-socket.on('joined',({slot,code,mode})=>{
-  hideConnBanner();
-  myCode=code; mySlot=slot; roomMode=mode||'solo';
-  saveSession();
-  applyPilotStyle();
-  if(!gameStarted){
-    isReady=false;
-    readyBtn.textContent='Ready for Launch';
-    readyBtn.classList.remove('done');
-    if(calibrated){
-      showScreen('lobby-screen');
-    }else{
-      goToCalibrationOrPermission();
-    }
-  }
-});
-
-socket.on('game_start',()=>{
-  isReady=false;
-  if(!gameStarted){ hideResult(); renderHull(HP_MAX); }   // a mid-round reconnect keeps what it was showing
-  if(calibrated) showController();
-  else{ pendingStart=true; goToCalibrationOrPermission(); }   // e.g. page was reloaded mid-game
-});
-
-socket.on('host_disconnected',()=>{
-  stopSending();
-  alert('Host disconnected. Please refresh the page.');
-});
-
-// ── MESSAGES FROM THE BIG SCREEN ──
-socket.on('player_msg',({kind,data})=>{
-  if(kind==='round_start'){
-    hideResult();
-    renderHull((data&&data.hp)||HP_MAX);
-  }else if(kind==='hp'){
-    renderHull(data.hp);
-    if(!data.silent) buzz(140);
-  }else if(kind==='boom'){
-    renderHull(0);
-    buzz([90,60,90,60,320]);
-  }else if(kind==='round_over'){
-    if(data.result==='solo'){
-      showResult(data.newBest?'New best time!':'Ship destroyed',
-        'You survived '+data.time+'. Best: '+data.best+'. Tap Fly Again on the big screen.');
-    }else{
-      const sc=data.scores||[0,0];
-      const scoreLine='Score: Pilot 1 · '+sc[0]+' — '+sc[1]+' · Pilot 2. Next round starts on the big screen.';
-      if(data.result==='win') showResult('You win the round!',scoreLine);
-      else if(data.result==='lose') showResult('Your ship blew up',scoreLine);
-      else showResult('Both ships blew up — draw',scoreLine);
-    }
-  }
-});
-
-// ── READY BUTTON ──
 readyBtn.addEventListener('click',()=>{
   if(isReady) return;
   isReady=true;
-  readyBtn.textContent='Standing By...';
+  readyBtn.textContent='Standing by';
   readyBtn.classList.add('done');
-  socket.emit('player_ready',{code:myCode});
+  buzz(15);
+  socket.emit('player_ready');
+  goLandscape();
+});
+// best effort: fullscreen + landscape lock (Android Chrome); ignored elsewhere
+function goLandscape(){
+  try{
+    const el=document.documentElement;
+    const p=el.requestFullscreen?el.requestFullscreen({navigationUI:'hide'}):null;
+    if(p&&p.then) p.then(()=>{ try{ screen.orientation.lock('landscape').catch(()=>{}); }catch(e){} }).catch(()=>{});
+  }catch(e){}
+}
+function resetLobby(){ isReady=false; readyBtn.textContent='Ready'; readyBtn.classList.remove('done'); }
+
+socket.on('joined',({slot,code,mode})=>{
+  hideConnBanner();
+  mySlot=slot;myCode=code;myMode=mode||'solo';
+  document.body.classList.toggle('B',slot==='B');
+  document.body.classList.toggle('solo',myMode!=='duo');
+  const name=myMode==='duo'?'Pilot '+slot:'Pilot';
+  $('my-name').textContent=name;
+  $('hud-slot').textContent=slot;
+  $('hud-name').textContent=name;
+  history.replaceState(null,'',location.pathname+'?code='+code);
+  if(!gameStarted){ resetLobby(); showScreen('lobby'); }
 });
 
-function showController(){
-  showScreen('controller-screen');
-  gameStarted=true;
-  startSending();
-  keepAwake();
+socket.on('lobby_update',d=>{
+  setPP('A',d.A,d.readyA);setPP('B',d.B,d.readyB);
+  const st=$('lobby-status');
+  if(myMode!=='duo') st.textContent=d.readyA?'Launching…':'Tap Ready when you\'re set';
+  else if(d.A&&d.B) st.textContent=(d.readyA&&d.readyB)?'Launching…':'Both pilots in — tap Ready';
+  else st.textContent='Waiting for the other pilot…';
+});
+function setPP(s,on,ready){ const el=$('pp-'+s); el.classList.toggle('on',!!on); el.classList.toggle('ready',!!ready); }
+
+socket.on('game_start',()=>{
+  isReady=false; gameStarted=true;
+  setStatus('Get ready','','Dodge the meteors');
+  showScreen('flight');
+  buzz([20,40,20]);
+});
+socket.on('back_to_lobby',()=>{
+  gameStarted=false; releaseAll(); setMenu(null); resetLobby(); showScreen('lobby');
+});
+socket.on('host_ui',ui=>setMenu(ui&&ui.menu?ui:null));
+
+// ── hull / status messages from the big screen ──
+socket.on('player_msg',({kind,data})=>{
+  data=data||{};
+  if(kind==='round_start'){ setHull(data.hp); setStatus('Fly!','','Dodge the meteors'); buzz(25); }
+  else if(kind==='hp'){
+    setHull(data.hp);
+    if(data.hit&&data.hp>0){
+      setStatus('Hit!','bad',data.hp+(data.hp===1?' hit left':' hits left'));
+      buzz([60,40,60]);
+      setTimeout(()=>{ if($('status').textContent==='Hit!') setStatus('Fly!','','Dodge the meteors'); },900);
+    }
+  }
+  else if(kind==='boom'){ setHull(0); setStatus('Ship destroyed','bad',''); buzz([120,60,200]); }
+  else if(kind==='round_over'){
+    if(data.result==='solo') setStatus(data.newBest?'New best time':data.time,data.newBest?'good':'','Best '+data.best);
+    else if(data.result==='win'){ setStatus('You win the round','good',data.scores.join(' : ')); buzz([30,30,30]); }
+    else if(data.result==='lose') setStatus('Round lost','bad',data.scores.join(' : '));
+    else setStatus('Draw','',data.scores.join(' : '));
+  }
+});
+function setHull(hp){ [...$('hull').children].forEach((el,i)=>el.classList.toggle('off',i>=hp)); }
+function setStatus(t,cls,sub){
+  const el=$('status'); el.textContent=t; el.className=cls||'';
+  $('status-sub').textContent=sub||'';
 }
 
-// ── RECONNECT HANDLING ──
-const connLostBanner=document.getElementById('conn-lost-banner');
-function showConnBanner(msg){ connLostBanner.textContent=msg; connLostBanner.style.display='block'; }
-function hideConnBanner(){ connLostBanner.style.display='none'; }
-
-socket.on('disconnect',()=>{
-  if(myCode) showConnBanner('Connection lost — reconnecting...');
+socket.on('replaced',()=>{
+  retired=true; releaseAll();
+  showInfo('Moved','Opened on another tab','This controller was reopened somewhere else on this phone. Use that tab instead.');
+  socket.disconnect();
 });
-// on every (re)connect, ask for our own seat back
-socket.on('connect',()=>{ if(myCode&&mySlot) socket.emit('rejoin_game',{code:myCode,slot:mySlot}); });
-
-window.addEventListener('blur',stopSending);
-window.addEventListener('visibilitychange',()=>{
-  if(document.hidden) stopSending();
-  else if(gameStarted){ startSending(); keepAwake(); }
+socket.on('host_disconnected',()=>{
+  retired=true; releaseAll();
+  showInfo('Disconnected','Host left','The big screen closed the game. Scan the new QR code to play again.');
 });
+function showInfo(eb,t,s){
+  $('info-eyebrow').textContent=eb; $('info-title').textContent=t; $('info-sub').textContent=s;
+  hideConnBanner(); showScreen('info');
+}
+
+// ── RECONNECTION ──
+const connBanner=$('conn-banner'), netDot=$('net-dot');
+function showConnBanner(msg){ connBanner.textContent=msg; connBanner.style.display='block'; netDot.classList.add('off'); }
+function hideConnBanner(){ connBanner.style.display='none'; netDot.classList.remove('off'); }
+socket.on('disconnect',()=>{ if(mySlot&&myCode&&!retired) showConnBanner('Connection lost — reconnecting'); });
+socket.on('connect',()=>{ if(mySlot&&myCode&&!retired) socket.emit('rejoin_game',{code:myCode,slot:mySlot,clientId}); });
+setInterval(()=>{ socket.emit('ping_check',()=>{}); },5000);
+
+// ═══════════════════════════════════════════════════════
+//  MIRRORED MENU — D-pad up/down + fire, or tap an item
+// ═══════════════════════════════════════════════════════
+const panel=$('panel'), mlist=$('mlist');
+function setMenu(ui){
+  menuUi=ui;
+  panel.classList.toggle('menu',!!ui);
+  $('fire-cap').textContent=ui?'Tap to select':'Tap to shoot';
+  $('dpad-cap').textContent=ui?'Up / down to choose':'Up thrust · left/right turn';
+  if(!ui) return;
+  $('menu-eyebrow').textContent=ui.eyebrow||'Round over';
+  const t=$('menu-title');
+  let title=ui.title||'';
+  if(ui.mode==='duo'&&ui.winner) title=ui.winner===mySlot?'You win':'Pilot '+ui.winner+' wins';
+  t.textContent=title;
+  t.style.color=ui.winner==='B'?'var(--navy)':'var(--ink)';
+  mlist.classList.toggle('locked',!!ui.locked);
+  mlist.innerHTML='';
+  (ui.items||[]).forEach((label,i)=>{
+    const d=document.createElement('div');
+    d.className='mi'+(i===ui.focus?' focus':'');
+    d.textContent=label;
+    d.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      if(mlist.classList.contains('locked')) return;
+      buzz(12);
+      socket.emit('ctrl_menu',{index:i});
+    });
+    mlist.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  D-PAD — one touch zone; slide your thumb between arms,
+//  diagonals press two arms (e.g. thrust + turn)
+// ═══════════════════════════════════════════════════════
+const dpad=$('dpad');
+const arms={up:dpad.querySelector('.u'),down:dpad.querySelector('.d'),left:dpad.querySelector('.l'),right:dpad.querySelector('.r')};
+const pad={up:false,down:false,left:false,right:false};
+let padPointer=null;
+
+function sendPad(){
+  if(!myCode||!mySlot||retired) return;
+  socket.emit('ctrl_input',pad);
+}
+function setPad(next){
+  let changed=false;
+  for(const k in pad){
+    if(pad[k]!==next[k]){
+      if(next[k]) buzz(8);
+      pad[k]=next[k];arms[k].classList.toggle('on',next[k]);changed=true;
+    }
+  }
+  if(changed) sendPad();
+}
+function padFrom(e){
+  const r=dpad.getBoundingClientRect();
+  const dx=e.clientX-(r.left+r.width/2), dy=e.clientY-(r.top+r.height/2);
+  const len=Math.hypot(dx,dy);
+  if(len<r.width*0.1) return {up:false,down:false,left:false,right:false};
+  const nx=dx/len, ny=dy/len;
+  return {up:ny<-0.38,down:ny>0.38,left:nx<-0.38,right:nx>0.38};
+}
+dpad.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(padPointer!==null) return;
+  padPointer=e.pointerId;
+  try{ dpad.setPointerCapture(e.pointerId); }catch(_){}
+  setPad(padFrom(e));
+});
+dpad.addEventListener('pointermove',e=>{ if(e.pointerId===padPointer) setPad(padFrom(e)); });
+function padUp(e){
+  if(e&&e.pointerId!==padPointer) return;
+  padPointer=null;
+  setPad({up:false,down:false,left:false,right:false});
+}
+dpad.addEventListener('pointerup',padUp);
+dpad.addEventListener('pointercancel',padUp);
+// keep the host in sync even if a packet drops
+setInterval(()=>{ if(gameStarted&&!document.hidden) sendPad(); },80);
+
+// ═══════════════════════════════════════════════════════
+//  FIRE — tap to shoot (hold repeats); selects in menus
+// ═══════════════════════════════════════════════════════
+const fire=$('fire');
+let firePointer=null, fireRepeat=null;
+fire.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(firePointer!==null||!myCode||!mySlot||retired) return;
+  firePointer=e.pointerId;
+  try{ fire.setPointerCapture(e.pointerId); }catch(_){}
+  fire.classList.add('down');
+  socket.emit('ctrl_fire');
+  buzz(menuUi?12:18);
+  clearInterval(fireRepeat);
+  if(!menuUi) fireRepeat=setInterval(()=>{ if(!menuUi) socket.emit('ctrl_fire'); },140);
+});
+function fireUp(e){
+  if(e&&e.pointerId!==firePointer) return;
+  firePointer=null;
+  clearInterval(fireRepeat);fireRepeat=null;
+  fire.classList.remove('down');
+}
+fire.addEventListener('pointerup',fireUp);
+fire.addEventListener('pointercancel',fireUp);
+
+function releaseAll(){ padUp(); fireUp(); }
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) releaseAll(); });
 </script>
 </body>
 </html>
