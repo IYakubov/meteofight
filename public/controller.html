@@ -179,7 +179,7 @@ body.solo .only-duo{display:none !important}
 
 <div id="rotate"><div class="phone"></div><div class="sub">Turn your phone sideways to fly</div></div>
 
-<script src="/socket.io/socket.io.js"></script>
+<script>window.__SC_BASE=location.pathname.replace(/[^/]*$/,'');</script><script src="socket.io/socket.io.js"></script>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
@@ -188,7 +188,7 @@ function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){}
 // ═══════════════════════════════════════════════════════
 //  SOCKET + ONE PHONE = ONE SLOT
 // ═══════════════════════════════════════════════════════
-const socket=io({ transports:['websocket'] });
+const socket=io({path:window.__SC_BASE+'socket.io',transports:['websocket']});
 let mySlot=null, myCode=null, myMode='solo', gameStarted=false, retired=false, menuUi=null;
 
 function getClientId(){
