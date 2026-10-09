@@ -215,6 +215,33 @@ function sfxReady(){playSample(SND_ENERGY_SRC,.55);}
 function sfxWave(){playSample(SND_VICTORY_SRC,.4);}
 function sfxRoundEnd(){playSample(SND_VICTORY_SRC,.8);}
 
+// ── BACKGROUND MUSIC — starts with the first round, loops, keeps playing
+//    between rounds (quieter on the round-over menu and while paused),
+//    fades out on Back to lobby / Main menu ──
+const MUSIC_VOL=0.45, MUSIC_DUCK=0.18;
+const music=new Audio('assets/spacefight.mp3');
+music.loop=true;music.preload='auto';music.volume=0;
+let musicTarget=0, musicFadeT=null;
+function fadeMusic(to,ms,thenPause){
+  musicTarget=to;
+  clearInterval(musicFadeT);
+  const from=music.volume,steps=Math.max(1,Math.round((ms||600)/40));let n=0;
+  musicFadeT=setInterval(()=>{
+    n++;music.volume=clamp(from+(to-from)*(n/steps),0,1);
+    if(n>=steps){clearInterval(musicFadeT);if(thenPause&&musicTarget===0) music.pause();}
+  },40);
+}
+function startMusic(){
+  if(music.paused){music.play().catch(()=>{});}
+  fadeMusic(MUSIC_VOL,900);
+}
+function duckMusic(on){ if(!music.paused) fadeMusic(on?MUSIC_DUCK:MUSIC_VOL,500); }
+function stopMusic(){
+  if(music.paused) return;
+  fadeMusic(0,700,true);
+  setTimeout(()=>{ if(musicTarget===0){ music.pause(); music.currentTime=0; } },760);
+}
+
 // ═══════════════════════════════════════════════════════
 //  CANVAS
 // ═══════════════════════════════════════════════════════
@@ -528,6 +555,7 @@ function newRound(){
   hideScreens();
   updateNames();buildHP();
   for(let i=0;i<ships.length;i++) sendToPlayer(i,'round_start',{hp:HP_MAX});
+  startMusic();
   checkPause();
 }
 function startMatch(){
@@ -540,6 +568,7 @@ function checkPause(){
   const need=mode==='duo'?['A','B']:['A'];
   const missing=localOnly?[]:need.filter(s=>!presence[s]);
   const should=(phase==='count'||phase==='play'||phase==='ending')&&missing.length>0;
+  if(should!==paused) duckMusic(should);
   paused=should;
   const el=$('pause-banner');
   el.classList.toggle('hidden',!should);
@@ -548,6 +577,7 @@ function checkPause(){
 
 function finishRound(){
   phase='over';
+  duckMusic(true);
   let eyebrow,title,winner=null,stats;
   if(mode==='solo'){
     const isBest=elapsed>bestTime;
@@ -625,11 +655,12 @@ function chooseMenu(i){
     menu=null;pushUi();
     if(id==='again'){ if(mode==='duo') roundNo++; newRound(); }
     else if(id==='lobby'){ socket.emit('host_back_to_lobby'); toLobby(); }
-    else { phase='idle'; localOnly=false; ships=[]; showScreen('screen-home'); }
+    else { phase='idle'; localOnly=false; ships=[]; stopMusic(); showScreen('screen-home'); }
   },160);
 }
 function toLobby(){
   phase='idle';ships=[];rockets=[];
+  stopMusic();
   setSlot('A','waiting');setSlot('B','waiting');
   showScreen('screen-lobby');
 }

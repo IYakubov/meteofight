@@ -48,6 +48,10 @@ GAMEPLAY
   instant = draw). The score carries across rounds until Back to lobby.
 - If a phone disconnects mid-round the field pauses until it's back. A
   phone that reloads goes straight back to its ship.
+- Music: public/assets/spacefight.mp3 loops from the first countdown,
+  keeps playing between rounds (quieter on the round-over menu and while
+  paused) and fades out on Back to lobby / Main menu. Volume: MUSIC_VOL
+  and MUSIC_DUCK in public/index.html.
 
 KEYBOARD TEST (no phones)
 -------------------------
@@ -66,6 +70,7 @@ server.js               Express + Socket.io (rooms, QR, slots, input relay)
 public/index.html       Big screen (the game)
 public/controller.html  Phone controller (D-pad + fire)
 public/fonts/           Unbounded (SIL OFL, see OFL.txt)
+public/assets/          spacefight.mp3 (background music)
 
 SOCKET EVENTS
 -------------
