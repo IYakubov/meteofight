@@ -146,7 +146,7 @@ body.solo .only-duo{display:none !important}
       <div class="arm d"><svg viewBox="0 0 24 24"><path d="M12 19L4 8h16z" fill="currentColor"/></svg></div>
       <div class="hub"></div>
     </div>
-    <div class="cap" id="dpad-cap">Up thrust · left/right turn</div>
+    <div class="cap" id="dpad-cap">Move in any direction</div>
   </div>
 
   <div class="panel" id="panel">
@@ -341,7 +341,7 @@ function setMenu(ui){
   menuUi=ui;
   panel.classList.toggle('menu',!!ui);
   $('fire-cap').textContent=ui?'Tap to select':'Tap to shoot';
-  $('dpad-cap').textContent=ui?'Up / down to choose':'Up thrust · left/right turn';
+  $('dpad-cap').textContent=ui?'Up / down to choose':'Move in any direction';
   if(!ui) return;
   $('menu-eyebrow').textContent=ui.eyebrow||'Round over';
   const t=$('menu-title');
@@ -367,7 +367,7 @@ function setMenu(ui){
 
 // ═══════════════════════════════════════════════════════
 //  D-PAD — one touch zone; slide your thumb between arms,
-//  diagonals press two arms (e.g. thrust + turn)
+//  diagonals press two arms (e.g. up + right)
 // ═══════════════════════════════════════════════════════
 const dpad=$('dpad');
 const arms={up:dpad.querySelector('.u'),down:dpad.querySelector('.d'),left:dpad.querySelector('.l'),right:dpad.querySelector('.r')};

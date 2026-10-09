@@ -237,9 +237,9 @@ window.addEventListener('resize',()=>{resize();initStars();});
 const HP_MAX=5;               // 5 meteor hits and the ship is gone
 const SHIP_S=0.82;            // Dart drawing scale (art is ~52 x 56 units)
 const SHIP_HIT_R=16;          // collision radius
-const SHIP_SPEED=300;         // px/s forward
-const SHIP_REVERSE=150;       // px/s backward
-const TURN_RATE=3.6;          // rad/s
+const SHIP_SPEED=300;         // px/s in any direction (diagonals normalised)
+const SHIP_ACCEL=8;           // how fast it reaches full speed (higher = snappier)
+const SHIP_GLIDE=3;           // how fast it slows down after release
 const INVULN_TIME=1100;       // ms of blinking after a hit
 const START_INVULN=1600;      // ms of grace when the round starts
 const WAVE_DURATION=12000;    // ms between difficulty steps
@@ -427,7 +427,7 @@ function fireRocket(i){
   const fx=Math.sin(s.ang),fy=-Math.cos(s.ang);
   const nose=30*SHIP_S+4;
   const x=s.x+fx*nose,y=s.y+fy*nose;
-  rockets.push({x,y,vx:fx*ROCKET_SPEED+s.vx*.4,vy:fy*ROCKET_SPEED+s.vy*.4,owner:i,life:ROCKET_LIFE,puff:0});
+  rockets.push({x,y,vx:fx*ROCKET_SPEED,vy:fy*ROCKET_SPEED+Math.min(0,s.vy)*.4,owner:i,life:ROCKET_LIFE,puff:0});
   s.recoil=1;
   s.kx-=fx*40;s.ky-=fy*40;
   burst(x,y,C.paper,4,90,260);
@@ -640,7 +640,7 @@ function toLobby(){
 function inputFor(i){
   const n=netIn[i],k=keyIn[i];
   const up=n.up||k.up,down=n.down||k.down,left=n.left||k.left,right=n.right||k.right;
-  return{thr:(up?1:0)-(down?1:0),turn:(right?1:0)-(left?1:0)};
+  return{mx:(right?1:0)-(left?1:0),my:(down?1:0)-(up?1:0)};
 }
 
 function updateEffects(dt){
@@ -670,7 +670,8 @@ function updateGame(dt){
     if(rocks.length<target&&spawnCd<=0){spawnRock(true);spawnCd=400;}
   }
 
-  // ships: tank-style — up/down thrust along the nose, left/right turn
+  // ships: the nose always points up — the D-pad slides the ship
+  // up / down / left / right (8 directions with diagonals), it never turns
   for(const s of ships){
     if(!s.alive) continue;
     if(s.invuln>0) s.invuln=Math.max(0,s.invuln-dt);
@@ -678,23 +679,24 @@ function updateGame(dt){
     if(s.cool>0) s.cool=Math.max(0,s.cool-dt);
     if(s.recoil>0) s.recoil=Math.max(0,s.recoil-dt/120);
     const inp=inputFor(s.slot);
-    s.ang+=inp.turn*TURN_RATE*sec;
-    const fx=Math.sin(s.ang),fy=-Math.cos(s.ang);
-    const tgt=inp.thr>0?SHIP_SPEED:inp.thr<0?-SHIP_REVERSE:0;
-    const k=Math.min(1,sec*(inp.thr?3.4:1.5));
-    s.vx+=(fx*tgt-s.vx)*k;
-    s.vy+=(fy*tgt-s.vy)*k;
-    s.thrust+=((inp.thr>0?1:0)-s.thrust)*Math.min(1,sec*10);
+    s.ang=0;
+    const m=Math.hypot(inp.mx,inp.my);
+    const tx=m?inp.mx/m*SHIP_SPEED:0, ty=m?inp.my/m*SHIP_SPEED:0;
+    const k=Math.min(1,sec*(m?SHIP_ACCEL:SHIP_GLIDE));
+    s.vx+=(tx-s.vx)*k;
+    s.vy+=(ty-s.vy)*k;
+    // flame: full when going forward, small when sliding sideways, off when backing up
+    const flame=inp.my<0?1:inp.mx!==0&&inp.my===0?0.45:0;
+    s.thrust+=(flame-s.thrust)*Math.min(1,sec*10);
     const decay=Math.pow(0.004,sec);
     s.kx*=decay;s.ky*=decay;
     s.x=clamp(s.x+(s.vx+s.kx)*sec,26,AW-26);
     s.y=clamp(s.y+(s.vy+s.ky)*sec,26,AH-26);
-    // exhaust puffs
+    // exhaust puffs out of the tail
     s.puff-=dt;
-    if(inp.thr>0&&s.puff<=0){
-      s.puff=34;
-      const bx=s.x-fx*27*SHIP_S,by=s.y-fy*27*SHIP_S;
-      puff(bx,by,-fx*70+(Math.random()-.5)*30,-fy*70+(Math.random()-.5)*30,2.2+Math.random()*1.8,420);
+    if(flame>0&&s.puff<=0){
+      s.puff=flame===1?34:60;
+      puff(s.x+(Math.random()-.5)*4,s.y+27*SHIP_S,(Math.random()-.5)*30,70+Math.random()*30,2.2+Math.random()*1.8,420);
     }
   }
 

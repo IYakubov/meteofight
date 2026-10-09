@@ -25,10 +25,9 @@ HOW TO PLAY
 2. Each pilot scans it, then taps Ready. Solo starts right away; 2 Players
    starts when both are ready. A 3-2-1 countdown follows.
 3. Phone controls (landscape):
-     D-pad up      thrust forward
-     D-pad down    reverse
-     D-pad left/right  turn
-     Diagonals work (e.g. up + right = thrust while turning).
+     D-pad         slide up / down / left / right — the ship never
+                   turns, its nose always points up
+     Diagonals work (e.g. up + right = fly up-right).
      Crosshair button  fire a rocket (hold to keep firing when reloaded)
 4. Round over: the menu (Fly again / Next round / Back to lobby) is chosen
    from the phones: D-pad up/down + fire, or tap an item. Input is locked
@@ -58,7 +57,7 @@ Pilot B: arrows + Enter. Solo accepts both sets.
 TUNING
 ------
 Constants at the top of the script in public/index.html:
-SHIP_SPEED, TURN_RATE, RELOAD_MS, ROCKET_SPEED, ROCKET_PUSH,
+SHIP_SPEED, SHIP_ACCEL, SHIP_GLIDE, RELOAD_MS, ROCKET_SPEED, ROCKET_PUSH,
 ROCKET_SHOVE, WAVE_DURATION, MAX_ROCKS.
 
 PROJECT STRUCTURE
